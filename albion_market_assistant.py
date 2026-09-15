@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.3"
+APP_VERSION="1.5.4"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1030,17 +1030,27 @@ class App:
         for c in cols:
             self.tree.heading(c,text=heads[c])
             self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
-        tablewrap=ttk.Frame(self.flips_tab);tablewrap.pack(fill="both",expand=True,padx=12,pady=(0,12))
+        tablewrap=ttk.Frame(self.flips_tab)
+        tablewrap.pack(fill="both",expand=True,padx=12,pady=(0,12))
+        tablewrap.rowconfigure(0,weight=1);tablewrap.columnconfigure(0,weight=1)
+        # Treeview was originally created with flips_tab as its parent and then
+        # geometry-managed inside tablewrap. Tk widgets cannot be re-parented that way.
+        # Create the results widget as an actual child of tablewrap.
+        try:self.tree.destroy()
+        except:pass
+        self.tree=ttk.Treeview(tablewrap,columns=cols,show="tree headings")
+        self.tree.heading("#0",text="Icon");self.tree.column("#0",width=58,minwidth=58,stretch=False,anchor="center")
+        for c in cols:
+            self.tree.heading(c,text=heads[c])
+            self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
         y=ttk.Scrollbar(tablewrap,orient="vertical",command=self.tree.yview)
         x=ttk.Scrollbar(tablewrap,orient="horizontal",command=self.tree.xview)
         self.tree.configure(yscrollcommand=y.set,xscrollcommand=x.set)
         self.tree.bind("<Double-1>",self.open_flip_detail)
         self.tree.bind("<<TreeviewSelect>>",lambda e:self.flip_refresh_btn.config(state="normal" if self.tree.selection() else "disabled"))
-        # grid keeps both scrollbars visible without the horizontal bar consuming/collapsing the Treeview
-        tablewrap.rowconfigure(0,weight=1);tablewrap.columnconfigure(0,weight=1)
-        self.tree.grid(in_=tablewrap,row=0,column=0,sticky="nsew")
-        y.grid(in_=tablewrap,row=0,column=1,sticky="ns")
-        x.grid(in_=tablewrap,row=1,column=0,sticky="ew")
+        self.tree.grid(row=0,column=0,sticky="nsew")
+        y.grid(row=0,column=1,sticky="ns")
+        x.grid(row=1,column=0,sticky="ew")
 
     def build_crafting_tab(self):
         top=ttk.Frame(self.crafting_tab,padding=12); top.pack(fill="x")
