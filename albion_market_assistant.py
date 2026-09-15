@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.12"
+APP_VERSION="1.5.13"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1500,6 +1500,27 @@ class App:
                         else:hh.extend(data)
                     except:pass
                     done_jobs+=1;self.setstatus(f"Fast market sync... {done_jobs}/{max(1,total_jobs)} requests")
+            # Recovery pass for sparse high-tier/high-enchantment rows.
+            # AODP can return sparse combinations inconsistently in very broad requests;
+            # these are exactly the rare 7.3/7.4/8.3/8.4 flips we most do not want to miss.
+            # Re-query those IDs in smaller batches and merge by item/city/quality.
+            rare_ids=[uid for uid in ids if tier(uid) in (7,8) and enchant(uid) in (3,4)]
+            if rare_ids:
+                self.setstatus("Checking rare high-value flips...")
+                recovered=[]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(FLIP_WORKERS,6)) as rex:
+                    rfuts=[rex.submit(prices_for_qualities,b,request_locs) for b in batches(rare_ids,max_chars=900,max_items=20)]
+                    for rf in concurrent.futures.as_completed(rfuts):
+                        try:recovered.extend(rf.result())
+                        except:pass
+                merged={}
+                for row in pp+recovered:
+                    key=(row.get("item_id"),row.get("city"),int(row.get("quality") or 1))
+                    prev=merged.get(key)
+                    # Recovery response is later/fresher; prefer it when populated.
+                    if prev is None or row.get("sell_price_min") or row.get("buy_price_max"):
+                        merged[key]=row
+                pp=list(merged.values())
             if not use_cached_history:
                 try:
                     hcache={hist_key:{"time":time.time(),"data":hh}}
