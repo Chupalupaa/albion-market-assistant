@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.13"
+APP_VERSION="1.5.14"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1546,6 +1546,9 @@ class App:
                 if city in FLIP_SELL_LOCATIONS:
                     uid=r.get("item_id");by.setdefault(uid,[]).append(r)
                     # observations are not required to rank flip results; skip per-row SQLite writes here
+            # Exact-item diagnostic: when a search narrows to one/few items, keep a
+            # human-readable reason for exclusion so missing website flips are debuggable.
+            diagnostic=[]
             out=[]
             for uid,rows in by.items():
                 for s in rows:
@@ -1582,6 +1585,28 @@ class App:
                             # Depth can be refreshed on demand for a selected result.
                             depth=0
                             out.append((pr,rr,uid,names.get(uid,uid),sq,s["city"],d["city"],bp,sp,sell_fees,vv,depth,sa,da,refresh))
+            # If a narrow search produced no flip, report the raw same-quality
+            # source/BM values instead of silently showing an empty table.
+            search_term=self.flip_search.get().strip().lower()
+            if search_term and not out:
+                for uid in ids:
+                    if uid not in by: continue
+                    for qv in range(1,6):
+                        srcs=[r for r in by[uid] if r.get("city")!="Black Market" and int(r.get("quality") or 1)==qv and (self.flip_scan_buy_city=="Any" or r.get("city")==self.flip_scan_buy_city)]
+                        bms=[r for r in by[uid] if r.get("city")=="Black Market" and int(r.get("quality") or 1)==qv]
+                        for sr in srcs:
+                            for br in bms:
+                                bp=float(sr.get("sell_price_min") or 0); sp=float(br.get("buy_price_max") or 0)
+                                sa=age(sr.get("sell_price_min_date")); da=age(br.get("buy_price_max_date"))
+                                fees=sp*sales_tax if sp else 0; pr=sp-fees-bp if bp and sp else 0; rr=pr/bp*100 if bp else 0
+                                reasons=[]
+                                if not bp: reasons.append("no source sell price")
+                                if not sp: reasons.append("no Black Market buy price")
+                                if sa>maxage: reasons.append(f"source age {agetxt(sa)} > {int(maxage)}m")
+                                if da>maxage: reasons.append(f"BM age {agetxt(da)} > {int(maxage)}m")
+                                if bp and sp and pr<minp: reasons.append(f"profit {pr:,.0f} < {minp:,.0f}")
+                                if bp and sp and rr<minroi: reasons.append(f"ROI {rr:.1f}% < {minroi:.1f}%")
+                                diagnostic.append((names.get(uid,uid),uid,qv,sr.get("city"),bp,sa,sp,da,pr,rr,", ".join(reasons) or "would pass"))
             out.sort(reverse=True)
             def show():
                 self.last_flip_rows=[];self.last_flip_records=[]
@@ -1595,7 +1620,14 @@ class App:
                     if idx<150:self.load_icon_async(self.tree,self.icon_images,iid,uid)
                 fee_pct=total_sell_fee*100
                 label="Premium" if premium else "No Premium"
-                self.status.set(f"Done — {len(out):,} opportunities • {label} sell-order fees {fee_pct:.1f}% • live depth loads on selected refresh.")
+                if not out and diagnostic:
+                    lines=["No matching flip. Raw API diagnostic:"]
+                    for nm,uid,qv,src,bp,sa,sp,da,pr,rr,reason in diagnostic[:12]:
+                        lines.append(f"{nm} | {QUALITY_NAMES.get(qv,qv)} | {src} {bp:,.0f} ({agetxt(sa)}) -> Black Market {sp:,.0f} ({agetxt(da)}) | profit {pr:,.0f} ROI {rr:.1f}% | {reason}")
+                    messagebox.showinfo("Flip diagnostic","\\n".join(lines))
+                    self.status.set("No opportunities — diagnostic displayed.")
+                else:
+                    self.status.set(f"Done — {len(out):,} opportunities • {label} sell-order fees {fee_pct:.1f}% • live depth loads on selected refresh.")
                 self.tree.xview_moveto(0)
                 self.flip_export_btn.config(state="normal" if self.last_flip_rows else "disabled")
                 self.flip_recalc_btn.config(state="normal" if self.last_flip_records else "disabled")
