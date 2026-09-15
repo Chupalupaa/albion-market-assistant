@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.8"
+APP_VERSION="1.5.9"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1530,9 +1530,17 @@ class App:
                         sq=int(s.get("quality") or 1);dq=int(d.get("quality") or 1)
                         if sq!=dq:continue
                         if self.flip_scan_sell_city!="Any" and d["city"]!=self.flip_scan_sell_city:continue
-                        sp=float(d.get("sell_price_min") or 0);da=age(d.get("sell_price_min_date"))
+                        # Royal-city destination = list a sell order at sell_price_min.
+                        # Black Market destination = sell INTO its highest buy order.
+                        # The Black Market is not another player sell-order market.
+                        if d["city"]=="Black Market":
+                            sp=float(d.get("buy_price_max") or 0);da=age(d.get("buy_price_max_date"))
+                            # BM direct sale has sales tax, but no 2.5% sell-order setup fee.
+                            sell_fees=sp*sales_tax
+                        else:
+                            sp=float(d.get("sell_price_min") or 0);da=age(d.get("sell_price_min_date"))
+                            sell_fees=sp*total_sell_fee
                         if not sp or da>maxage:continue
-                        sell_fees=sp*total_sell_fee
                         pr=sp-sell_fees-bp
                         rr=pr/bp*100
                         vv=vm.get((uid,d["city"],dq),0)
