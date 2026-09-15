@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.10"
+APP_VERSION="1.5.11"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1517,8 +1517,10 @@ class App:
                 # Black Market opportunities live on buy_price_max and commonly have no
                 # sell_price_min at all. Previously those BM rows were discarded here
                 # before the comparison code ever saw them.
-                has_market_price=((r.get("buy_price_max") or 0)>0) if city=="Black Market" else ((r.get("sell_price_min") or 0)>0)
-                if has_market_price and city in FLIP_SELL_LOCATIONS:
+                # Keep every returned market row for the requested locations. A row can
+                # legitimately have only one side populated; source/destination validation
+                # happens below using the side actually needed for that transaction.
+                if city in FLIP_SELL_LOCATIONS:
                     uid=r.get("item_id");by.setdefault(uid,[]).append(r)
                     # observations are not required to rank flip results; skip per-row SQLite writes here
             out=[]
