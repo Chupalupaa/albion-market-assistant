@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 
-APP_VERSION="1.3.0"
+APP_VERSION="1.4.0"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_MANIFEST_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
@@ -272,7 +272,7 @@ class App:
     def __init__(self,root):
         dbinit()
         self.root=root
-        root.title("Albion Market Assistant v1.3")
+        root.title("Albion Market Assistant v1.4")
         root.geometry("1510x840")
         self.style=ttk.Style()
         try:self.style.theme_use("clam")
@@ -295,6 +295,7 @@ class App:
         self.profile_tab=ttk.Frame(self.notebook)
         self.data_tab=ttk.Frame(self.notebook)
         self.settings_tab=ttk.Frame(self.notebook)
+        self.ai_tab=ttk.Frame(self.notebook)
         self.notebook.add(self.dashboard_tab,text="  Dashboard  ")
         self.notebook.add(self.flips_tab,text="  Market Flips  ")
         self.notebook.add(self.crafting_tab,text="  Crafting  ")
@@ -302,6 +303,7 @@ class App:
         self.notebook.add(self.watchlist_tab,text="  Watchlist  ")
         self.notebook.add(self.profile_tab,text="  My Profile  ")
         self.notebook.add(self.data_tab,text="  Data Health  ")
+        self.notebook.add(self.ai_tab,text="  AI Assistant  ")
         self.notebook.add(self.settings_tab,text="  Settings  ")
 
         self.last_flip_rows=[]
@@ -320,6 +322,7 @@ class App:
         self.build_watchlist_tab()
         self.build_profile_tab()
         self.build_data_tab()
+        self.build_ai_tab()
         self.build_settings_tab()
         for tr in (self.tree,self.craft_tree,self.dashboard_tree,self.watch_tree,self.data_tree):
             self.make_tree_sortable(tr)
@@ -1890,6 +1893,138 @@ class App:
         text="\n".join(lines)
         self.root.clipboard_clear();self.root.clipboard_append(text)
         messagebox.showinfo("Copied","Shopping list copied to clipboard.")
+
+    # ---------- AI market assistant ----------
+    def build_ai_tab(self):
+        outer=ttk.Frame(self.ai_tab,padding=16);outer.pack(fill="both",expand=True)
+        ttk.Label(outer,text="AI Market Assistant",style="Title.TLabel").pack(anchor="w")
+        ttk.Label(outer,text="Uses the market flips and crafting results already loaded in this app. Scan first for the freshest recommendations.").pack(anchor="w",pady=(2,10))
+
+        setup=ttk.LabelFrame(outer,text="OpenAI API",padding=10);setup.pack(fill="x")
+        row=ttk.Frame(setup);row.pack(fill="x")
+        ttk.Label(row,text="API key").pack(side="left")
+        self.ai_api_key=tk.StringVar(value=os.environ.get("OPENAI_API_KEY",""))
+        self.ai_key_entry=ttk.Entry(row,textvariable=self.ai_api_key,show="*",width=55)
+        self.ai_key_entry.pack(side="left",padx=(8,8))
+        ttk.Label(row,text="Model").pack(side="left",padx=(10,4))
+        self.ai_model=tk.StringVar(value="gpt-5.6-luna")
+        ttk.Combobox(row,textvariable=self.ai_model,values=("gpt-5.6-luna","gpt-5.6-terra","gpt-5.6-sol"),width=18,state="readonly").pack(side="left")
+        ttk.Button(row,text="SAVE KEY LOCALLY",command=self.save_ai_key).pack(side="left",padx=(8,0))
+
+        quick=ttk.Frame(outer);quick.pack(fill="x",pady=(10,6))
+        ttk.Button(quick,text="BEST CRAFTS",command=lambda:self.ai_quick("Find the best crafts in my currently loaded results. Prioritize realistic profit, ROI, sales volume, data freshness, and Focus efficiency. Tell me what to craft, where to craft it, where to sell it, and why.")).pack(side="left")
+        ttk.Button(quick,text="BEST FLIPS",command=lambda:self.ai_quick("Find the best market flips in my currently loaded results. Prioritize realistic profit, ROI, volume, live depth, confidence, and fresh prices. Tell me what to buy, where to buy it, where to sell it, and why.")).pack(side="left",padx=(6,0))
+        ttk.Button(quick,text="WHAT TO REFRESH",command=lambda:self.ai_quick("Which prices should I refresh in game first to improve the reliability of my best opportunities? Give me a short prioritized list and explain why each matters.")).pack(side="left",padx=(6,0))
+        ttk.Button(quick,text="FOCUS ANALYSIS",command=lambda:self.ai_quick("Analyze my loaded crafting results specifically for Focus use. Rank the strongest opportunities by extra profit created by Focus and profit per 10k Focus while accounting for sales volume and stale data.")).pack(side="left",padx=(6,0))
+
+        ttk.Label(outer,text="Ask about your loaded Albion market data:").pack(anchor="w",pady=(4,2))
+        self.ai_question=tk.Text(outer,height=4,wrap="word")
+        self.ai_question.pack(fill="x")
+        self.apply_text_theme(self.ai_question)
+        buttons=ttk.Frame(outer);buttons.pack(fill="x",pady=(6,6))
+        self.ai_ask_btn=ttk.Button(buttons,text="ASK AI",command=self.ask_ai);self.ai_ask_btn.pack(side="left")
+        ttk.Button(buttons,text="CLEAR",command=lambda:self.ai_answer.config(state="normal") or self.ai_answer.delete("1.0","end")).pack(side="left",padx=(6,0))
+        self.ai_status=tk.StringVar(value="Ready. Scan Market Flips or Crafting first.")
+        ttk.Label(buttons,textvariable=self.ai_status).pack(side="left",padx=(12,0))
+
+        self.ai_answer=tk.Text(outer,wrap="word",height=24)
+        self.ai_answer.pack(fill="both",expand=True)
+        self.apply_text_theme(self.ai_answer)
+
+    def ai_key_path(self):
+        return os.path.join(APP_DIR,"openai_api_key.txt")
+
+    def save_ai_key(self):
+        key=self.ai_api_key.get().strip()
+        if not key:
+            messagebox.showwarning("API key","Paste an OpenAI API key first.");return
+        try:
+            with open(self.ai_key_path(),"w",encoding="utf-8") as f:f.write(key)
+            messagebox.showinfo("Saved","API key saved locally on this PC. It is not uploaded to GitHub.")
+        except Exception as e:messagebox.showerror("Save key",str(e))
+
+    def load_ai_key(self):
+        key=self.ai_api_key.get().strip()
+        if key:return key
+        try:
+            with open(self.ai_key_path(),"r",encoding="utf-8") as f:key=f.read().strip()
+            if key:self.ai_api_key.set(key)
+            return key
+        except:return ""
+
+    def ai_quick(self,prompt):
+        self.ai_question.delete("1.0","end");self.ai_question.insert("1.0",prompt);self.ask_ai()
+
+    def ai_context(self):
+        crafts=sorted(getattr(self,"last_craft_records",[]) or [],key=lambda d:(d.get("profit",0),d.get("roi",0)),reverse=True)[:80]
+        flips=sorted(getattr(self,"last_flip_records",[]) or [],key=lambda d:(d.get("profit",0),d.get("roi",0)),reverse=True)[:80]
+        def craft_row(d):
+            return {"item":d.get("name"),"item_id":d.get("uid"),"tier":f"{tier(d.get('uid',''))}.{enchant(d.get('uid',''))}",
+                "craft_city":d.get("craftcity"),"sell_city":d.get("sellcity"),"runs":d.get("runs"),"rrr_pct":round(100*d.get("rrr",0),1),
+                "raw_mats":round(d.get("raw",0)),"returned_mats":round(d.get("returned",0)),"station_fee":round(d.get("station",0)),
+                "sale_value":round(d.get("sell",0)),"fees":round(d.get("fees",0)),"profit":round(d.get("profit",0)),"roi_pct":round(d.get("roi",0),1),
+                "profit_per_10k_focus":round(d["p10k"]) if d.get("p10k") is not None else None,
+                "extra_profit_per_10k_focus":round(d["extra10k"]) if d.get("extra10k") is not None else None,
+                "sales_per_day":round(d.get("volume",0),2),"days_to_sell":round(d["days"],2) if d.get("days") is not None else None,
+                "mat_age":agetxt(d.get("mat_age",10**9)),"output_age":agetxt(d.get("out_age",10**9)),
+                "confidence":d.get("confidence"),"needs_refresh":d.get("refresh")}
+        def flip_row(d):
+            keep=("name","uid","buycity","sellcity","buy","sell","fees","profit","roi","volume","depth","confidence","refresh","buy_age","sell_age")
+            return {k:d.get(k) for k in keep if k in d}
+        return {"app_version":APP_VERSION,"premium":bool(self.premium.get()),
+            "focus_enabled":bool(self.use_focus.get()) if hasattr(self,"use_focus") else None,
+            "craft_runs":self.craft_runs.get() if hasattr(self,"craft_runs") else None,
+            "station_fee_per_run":self.craft_station_fee.get() if hasattr(self,"craft_station_fee") else None,
+            "crafts":[craft_row(d) for d in crafts],"flips":[flip_row(d) for d in flips]}
+
+    def ask_ai(self):
+        question=self.ai_question.get("1.0","end").strip()
+        if not question:return
+        key=self.load_ai_key()
+        if not key:
+            messagebox.showwarning("OpenAI API key","Paste your OpenAI API key at the top of the AI Assistant tab, then click SAVE KEY LOCALLY.");return
+        ctx=self.ai_context()
+        if not ctx["crafts"] and not ctx["flips"]:
+            messagebox.showwarning("No market data","Run a Crafting or Market Flips scan first so the AI has current app data to analyze.");return
+        self.ai_ask_btn.config(state="disabled");self.ai_status.set("Analyzing loaded market data...")
+        threading.Thread(target=self._ask_ai_worker,args=(question,key,ctx),daemon=True).start()
+
+    def _ask_ai_worker(self,question,key,ctx):
+        try:
+            instructions=("You are the AI analyst inside Albion Market Assistant. Analyze ONLY the supplied app data for numerical market claims. "
+                "Never invent a price, recipe, city, profit, volume, or freshness value. Treat stale/low-confidence data cautiously. "
+                "The player wants actionable Albion Online crafting and market-flip recommendations. Explain important assumptions briefly. "
+                "When recommending crafts, consider profit, ROI, liquidity/sales per day, days to sell, price age, confidence, premium, Focus, RRR, station fee, "
+                "and profit or extra profit per 10k Focus when available. If data is stale, explicitly say which prices should be refreshed in game.")
+            payload={"model":self.ai_model.get(),"instructions":instructions,
+                "input":"PLAYER QUESTION:\\n"+question+"\\n\\nCURRENT APP DATA (JSON):\\n"+json.dumps(ctx,separators=(",",":")),
+                "max_output_tokens":1800}
+            req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),
+                headers={"Authorization":"Bearer "+key,"Content-Type":"application/json","User-Agent":"AlbionMarketAssistant/1.4"},method="POST")
+            with urllib.request.urlopen(req,timeout=120) as r:data=json.loads(r.read().decode("utf-8"))
+            answer=data.get("output_text")
+            if not answer:
+                parts=[]
+                for out in data.get("output",[]):
+                    for c in out.get("content",[]):
+                        if c.get("type")=="output_text":parts.append(c.get("text",""))
+                answer="\\n".join(parts).strip()
+            if not answer:answer="The API returned no text response."
+            self.root.after(0,lambda:self._show_ai_answer(answer))
+        except Exception as e:
+            msg=str(e)
+            if hasattr(e,"read"):
+                try:msg=e.read().decode("utf-8")[:1000]
+                except:pass
+            self.root.after(0,lambda m=msg:self._show_ai_error(m))
+
+    def _show_ai_answer(self,answer):
+        self.ai_answer.config(state="normal");self.ai_answer.delete("1.0","end");self.ai_answer.insert("1.0",answer)
+        self.ai_answer.see("1.0");self.ai_ask_btn.config(state="normal");self.ai_status.set("Done — answer based on currently loaded app data.")
+
+    def _show_ai_error(self,msg):
+        self.ai_ask_btn.config(state="normal");self.ai_status.set("AI request failed.")
+        messagebox.showerror("AI Assistant",msg)
 
     def export_flips_csv(self):
         rows=getattr(self,"last_flip_rows",[])
