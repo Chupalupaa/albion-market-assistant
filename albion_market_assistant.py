@@ -2,8 +2,9 @@ import gzip, json, re, threading, time, urllib.parse, urllib.request, sqlite3, o
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
-APP_VERSION="1.4.0"
+APP_VERSION="1.4.1"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_MANIFEST_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
@@ -272,7 +273,7 @@ class App:
     def __init__(self,root):
         dbinit()
         self.root=root
-        root.title("Albion Market Assistant v1.4")
+        root.title("Albion Market Assistant v1.4.1")
         root.geometry("1510x840")
         self.style=ttk.Style()
         try:self.style.theme_use("clam")
