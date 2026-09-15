@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.4"
+APP_VERSION="1.5.5"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -15,6 +15,7 @@ ITEMS_URL="https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatt
 RECIPES_URL="https://raw.githubusercontent.com/vkorne-web/albion-market/main/recipes.json"
 
 CITIES=["Bridgewatch","Martlock","Thetford","Fort Sterling","Lymhurst","Caerleon"]
+FLIP_SELL_LOCATIONS=CITIES+["Black Market"]
 CRAFT_CITIES=CITIES+["Brecilien"]
 
 GEAR_MARKERS=("_HEAD_","_ARMOR_","_SHOES_","_MAIN_","_2H_","_OFF_","_BAG","_CAPE")
@@ -998,7 +999,7 @@ class App:
         ttk.Label(filters,text="Buy city").grid(row=1,column=0,sticky="w",pady=(8,0))
         ttk.Combobox(filters,textvariable=self.flip_buy_city,values=["Any"]+CITIES,state="readonly",width=12).grid(row=1,column=1,columnspan=2,sticky="w",pady=(8,0))
         ttk.Label(filters,text="Sell city").grid(row=1,column=3,sticky="e",padx=(8,3),pady=(8,0))
-        ttk.Combobox(filters,textvariable=self.flip_sell_city,values=["Any"]+CITIES,state="readonly",width=12).grid(row=1,column=4,columnspan=2,sticky="w",pady=(8,0))
+        ttk.Combobox(filters,textvariable=self.flip_sell_city,values=["Any"]+FLIP_SELL_LOCATIONS,state="readonly",width=12).grid(row=1,column=4,columnspan=2,sticky="w",pady=(8,0))
         ttk.Label(filters,text="Qty").grid(row=1,column=6,sticky="e",padx=(8,3),pady=(8,0))
         ttk.Entry(filters,textvariable=self.flip_qty,width=6).grid(row=1,column=7,sticky="w",pady=(8,0))
         ttk.Label(filters,text="Confidence").grid(row=1,column=8,sticky="e",padx=(8,3),pady=(8,0))
@@ -1462,8 +1463,8 @@ class App:
             for i,b in enumerate(bs,1):
                 self.setstatus(f"Downloading market data... batch {i}/{len(bs)}")
                 try:
-                    pp.extend(prices_for(b,CITIES))
-                    hh.extend(history_for(b,CITIES))
+                    pp.extend(prices_for(b,FLIP_SELL_LOCATIONS))
+                    hh.extend(history_for(b,FLIP_SELL_LOCATIONS))
                 except:pass
                 time.sleep(.18)
             vm={}
@@ -1475,7 +1476,7 @@ class App:
                 if vals:vm[(h.get("item_id"),h.get("location"))]=sum(vals)/len(vals)
             by={}
             for r in pp:
-                if (r.get("sell_price_min") or 0)>0 and r.get("city") in CITIES:
+                if (r.get("sell_price_min") or 0)>0 and r.get("city") in FLIP_SELL_LOCATIONS:
                     uid=r.get("item_id");by.setdefault(uid,[]).append(r)
                     cache_observation(uid,r.get("city"),r.get("sell_price_min"),r.get("sell_price_min_date"))
             out=[]
@@ -1483,6 +1484,8 @@ class App:
                 for s in rows:
                     bp=float(s.get("sell_price_min") or 0);sa=age(s.get("sell_price_min_date"))
                     if not bp or sa>maxage:continue
+                    # Black Market is a sell destination, not a normal player market to buy from.
+                    if s["city"]=="Black Market":continue
                     if self.flip_scan_buy_city!="Any" and s["city"]!=self.flip_scan_buy_city:continue
                     for d in rows:
                         if s["city"]==d["city"]:continue
