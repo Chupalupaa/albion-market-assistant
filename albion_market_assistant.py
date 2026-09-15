@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.11"
+APP_VERSION="1.5.12"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -981,8 +981,10 @@ class App:
         self.profit=tk.StringVar(value="40000")
         self.roi=tk.StringVar(value="10")
         self.agev=tk.StringVar(value="180")
-        self.vol=tk.StringVar(value="2")
-        for i,(lab,var) in enumerate([("Min profit",self.profit),("Min ROI %",self.roi),("Max age (min)",self.agev),("Min vol/day",self.vol)]):
+        # Volume is informational only for flips. Do not hide rare/high-value
+        # opportunities (e.g. 7.4 Excellent) just because historical daily volume is low.
+        self.vol=tk.StringVar(value="0")
+        for i,(lab,var) in enumerate([("Min profit",self.profit),("Min ROI %",self.roi),("Max age (min)",self.agev)]):
             ttk.Label(top,text=lab).grid(row=2,column=i*2,sticky="w",padx=(0,4))
             ttk.Entry(top,textvariable=var,width=11).grid(row=2,column=i*2+1,sticky="w",padx=(0,14))
 
@@ -1552,7 +1554,7 @@ class App:
                         pr=sp-sell_fees-bp
                         rr=pr/bp*100
                         vv=vm.get((uid,d["city"],dq),0)
-                        if pr>=minp and rr>=minroi and vv>=minvol:
+                        if pr>=minp and rr>=minroi:
                             refresh="YES" if max(sa,da)>90 else "No"
                             # Do not perform a SQLite live-depth query for every candidate.
                             # That turned broad all-quality scans into thousands of DB opens.
