@@ -274,7 +274,7 @@ class App:
     def __init__(self,root):
         dbinit()
         self.root=root
-        root.title("Albion Market Assistant v1.4.1")
+        root.title(f"Albion Market Assistant v{APP_VERSION}")
         root.geometry("1510x840")
         self.style=ttk.Style()
         try:self.style.theme_use("clam")
@@ -1321,13 +1321,28 @@ class App:
         self.style.configure("TNotebook",background=bg,borderwidth=0)
         self.style.configure("TNotebook.Tab",background="#303030" if dark else "#e5e5e5",foreground=fg,padding=(14,7))
         self.style.map("TNotebook.Tab",background=[("selected","#454545" if dark else "#ffffff")],foreground=[("selected",fg)])
-        self.style.configure("TCombobox",fieldbackground=field,background=field,foreground=fg)
+        self.style.configure("TCombobox",fieldbackground=field,background=field,foreground=fg,arrowcolor=fg)
+        self.style.map("TCombobox",
+            fieldbackground=[("readonly",field),("disabled","#2a2a2a" if dark else "#e7e7e7")],
+            background=[("readonly",field),("disabled","#2a2a2a" if dark else "#e7e7e7")],
+            foreground=[("readonly",fg),("disabled","#aaaaaa" if dark else "#666666")],
+            selectbackground=[("readonly",field)],selectforeground=[("readonly",fg)])
+        self.root.option_add("*TCombobox*Listbox.background",field)
+        self.root.option_add("*TCombobox*Listbox.foreground",fg)
+        self.root.option_add("*TCombobox*Listbox.selectBackground","#3d5a80" if dark else "#0078d7")
+        self.root.option_add("*TCombobox*Listbox.selectForeground","#ffffff")
         self.style.configure("Title.TLabel",background=bg,foreground=fg,font=("Segoe UI",18,"bold"))
         self.style.configure("Warn.TLabel",background=bg,foreground="#ffcc66" if dark else "#9a6500",font=("Segoe UI",10,"bold"))
-        self.style.configure("TEntry",fieldbackground=field,foreground=fg,insertcolor=fg)
+        self.style.configure("TEntry",fieldbackground=field,background=field,foreground=fg,insertcolor=fg)
+        self.style.map("TEntry",fieldbackground=[("disabled","#2a2a2a" if dark else "#e7e7e7")],foreground=[("disabled","#aaaaaa" if dark else "#666666")])
+        self.style.configure("TSpinbox",fieldbackground=field,background=field,foreground=fg,arrowcolor=fg)
+        self.style.map("TSpinbox",fieldbackground=[("readonly",field),("disabled","#2a2a2a" if dark else "#e7e7e7")],foreground=[("readonly",fg),("disabled","#aaaaaa" if dark else "#666666")])
         self.style.configure("TCheckbutton",background=bg,foreground=fg)
         self.style.map("TCheckbutton",background=[("active",bg)],foreground=[("active",fg)])
         self.style.configure("TButton",background="#3a3a3a" if dark else "#e1e1e1",foreground=fg)
+        self.style.map("TButton",background=[("active","#505050" if dark else "#d0d0d0"),("disabled","#292929" if dark else "#eeeeee")],foreground=[("disabled","#888888" if dark else "#888888")])
+        self.style.configure("Horizontal.TScrollbar",background="#444444" if dark else "#d8d8d8",troughcolor=panel,arrowcolor=fg)
+        self.style.configure("Vertical.TScrollbar",background="#444444" if dark else "#d8d8d8",troughcolor=panel,arrowcolor=fg)
         self.style.configure("Treeview",background=panel,fieldbackground=panel,foreground=fg,rowheight=54)
         self.style.map("Treeview",background=[("selected","#3d5a80" if dark else "#0078d7")],foreground=[("selected","#fff")])
         self.style.configure("Treeview.Heading",background="#303030" if dark else "#f0f0f0",foreground=fg)
