@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.7"
+APP_VERSION="1.5.8"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1514,7 +1514,7 @@ class App:
             for r in pp:
                 if (r.get("sell_price_min") or 0)>0 and r.get("city") in FLIP_SELL_LOCATIONS:
                     uid=r.get("item_id");by.setdefault(uid,[]).append(r)
-                    cache_observation(uid,r.get("city"),r.get("sell_price_min"),r.get("sell_price_min_date"))
+                    # observations are not required to rank flip results; skip per-row SQLite writes here
             out=[]
             for uid,rows in by.items():
                 for s in rows:
@@ -1538,7 +1538,10 @@ class App:
                         vv=vm.get((uid,d["city"],dq),0)
                         if pr>=minp and rr>=minroi and vv>=minvol:
                             refresh="YES" if max(sa,da)>90 else "No"
-                            depth=live_depth(uid,d["city"],dq,"sell")[1]
+                            # Do not perform a SQLite live-depth query for every candidate.
+                            # That turned broad all-quality scans into thousands of DB opens.
+                            # Depth can be refreshed on demand for a selected result.
+                            depth=0
                             out.append((pr,rr,uid,names.get(uid,uid),sq,s["city"],d["city"],bp,sp,sell_fees,vv,depth,sa,da,refresh))
             out.sort(reverse=True)
             def show():
@@ -1553,7 +1556,7 @@ class App:
                     if idx<150:self.load_icon_async(self.tree,self.icon_images,iid,uid)
                 fee_pct=total_sell_fee*100
                 label="Premium" if premium else "No Premium"
-                self.status.set(f"Done — {len(out):,} opportunities • {label} sell-order fees {fee_pct:.1f}% • red rows need a market refresh.")
+                self.status.set(f"Done — {len(out):,} opportunities • {label} sell-order fees {fee_pct:.1f}% • live depth loads on selected refresh.")
                 self.tree.xview_moveto(0)
                 self.flip_export_btn.config(state="normal" if self.last_flip_rows else "disabled")
                 self.flip_recalc_btn.config(state="normal" if self.last_flip_records else "disabled")
