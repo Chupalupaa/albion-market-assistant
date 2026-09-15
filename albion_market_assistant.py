@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.4.2"
+APP_VERSION="1.5.0"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_MANIFEST_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
@@ -991,6 +991,15 @@ class App:
             v=tk.BooleanVar(value=False);self.enchants[e]=v
             ttk.Checkbutton(f,text=f".{e}",variable=v).pack(side="left")
         self.flip_min_conf=tk.StringVar(value="Any")
+        self.flip_buy_city=tk.StringVar(value="Any")
+        self.flip_sell_city=tk.StringVar(value="Any")
+        self.flip_qty=tk.StringVar(value="1")
+        ttk.Label(f,text="   Buy city:").pack(side="left")
+        ttk.Combobox(f,textvariable=self.flip_buy_city,values=["Any"]+CITIES,state="readonly",width=11).pack(side="left")
+        ttk.Label(f,text=" Sell city:").pack(side="left")
+        ttk.Combobox(f,textvariable=self.flip_sell_city,values=["Any"]+CITIES,state="readonly",width=11).pack(side="left")
+        ttk.Label(f,text=" Qty:").pack(side="left")
+        ttk.Entry(f,textvariable=self.flip_qty,width=5).pack(side="left")
         ttk.Label(f,text="   Min confidence:").pack(side="left")
         ttk.Combobox(f,textvariable=self.flip_min_conf,values=["Any","MEDIUM+","HIGH"],state="readonly",width=10).pack(side="left")
         self.flip_search=tk.StringVar(value="")
@@ -1004,21 +1013,27 @@ class App:
         self.flip_export_btn.pack(side="right",padx=(6,0))
         self.btn=ttk.Button(f,text="SCAN MARKET",command=self.start)
         self.btn.pack(side="right")
+        self.flip_refresh_btn=ttk.Button(f,text="REFRESH SELECTED",command=self.refresh_selected_flip,state="disabled")
+        self.flip_refresh_btn.pack(side="right",padx=(0,6))
+        self.flip_recalc_btn=ttk.Button(f,text="RECALCULATE",command=self.recalculate_loaded_flips,state="disabled")
+        self.flip_recalc_btn.pack(side="right",padx=(0,6))
 
         self.status=tk.StringVar(value="Ready. Green = actionable, amber = stale, red = loss/problem, blue = just recalculated locally.")
         ttk.Label(self.flips_tab,textvariable=self.status,padding=(12,4)).pack(fill="x")
 
-        cols=("item","tier","from","to","buy","sell","fees","profit","roi","volume","depth","age","refresh","confidence")
+        cols=("item","tier","from","buy","buyage","to","sell","sellage","investment","fees","profit","roi","volume","days","depth","refresh","confidence")
         self.tree=ttk.Treeview(self.flips_tab,columns=cols,show="tree headings")
         self.tree.heading("#0",text="Icon"); self.tree.column("#0",width=58,minwidth=58,stretch=False,anchor="center")
-        heads={"item":"Item","tier":"Tier","from":"Buy city","to":"Sell city","buy":"Buy","sell":"Sell","fees":"Sell fees",
-               "profit":"Profit","roi":"ROI","volume":"14d/day","depth":"Live depth","age":"Price age","refresh":"Refresh?","confidence":"Confidence"}
-        widths={"item":270,"tier":55,"from":100,"to":100,"buy":85,"sell":85,"fees":90,"profit":90,"roi":65,"volume":70,"depth":75,"age":105,"refresh":75,"confidence":90}
+        heads={"item":"Item","tier":"Tier","from":"Buy city","buy":"Buy","buyage":"Buy age","to":"Sell city","sell":"Sell","sellage":"Sell age",
+               "investment":"Investment","fees":"Fees","profit":"Profit","roi":"ROI","volume":"14d/day","days":"Days to sell","depth":"Live depth","refresh":"Refresh?","confidence":"Confidence"}
+        widths={"item":250,"tier":55,"from":95,"buy":85,"buyage":80,"to":95,"sell":85,"sellage":80,"investment":95,"fees":85,"profit":95,"roi":65,"volume":70,"days":80,"depth":75,"refresh":70,"confidence":85}
         for c in cols:
             self.tree.heading(c,text=heads[c])
-            self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence") else ("e" if c in ("buy","sell","fees","profit","roi","volume","depth") else "w"))
+            self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
         y=ttk.Scrollbar(self.flips_tab,orient="vertical",command=self.tree.yview)
         self.tree.configure(yscrollcommand=y.set)
+        self.tree.bind("<Double-1>",self.open_flip_detail)
+        self.tree.bind("<<TreeviewSelect>>",lambda e:self.flip_refresh_btn.config(state="normal" if self.tree.selection() else "disabled"))
         self.tree.pack(side="left",fill="both",expand=True,padx=(12,0),pady=(0,12))
         y.pack(side="right",fill="y",padx=(0,12),pady=(0,12))
 
@@ -1354,8 +1369,8 @@ class App:
             self.status.set(f"Ready — {label}: sell-order fee assumption {total*100:.1f}%.")
         if hasattr(self,"craft_status"):
             self.craft_status.set("Ready. Premium setting is shared with crafting sale-fee calculations.")
-        if hasattr(self,"last_craft_records") and self.last_craft_records:
-            self.recalculate_loaded_crafts(True)
+        if hasattr(self,"last_craft_records") and self.last_craft_records:self.recalculate_loaded_crafts(True)
+        if hasattr(self,"last_flip_records") and self.last_flip_records:self.recalculate_loaded_flips()
 
     # ---------- icons ----------
     def load_icon_async(self,tree,store,iid,uid):
@@ -1382,6 +1397,7 @@ class App:
                 messagebox.showerror("Choose filters","Select at least one Tier and one Enchantment before scanning.")
                 return
             self.settings=(float(self.profit.get()),float(self.roi.get()),int(self.agev.get()),float(self.vol.get()),bool(self.premium.get()),self.flip_min_conf.get())
+            self.flip_scan_buy_city=self.flip_buy_city.get();self.flip_scan_sell_city=self.flip_sell_city.get()
         except:
             messagebox.showerror("Invalid filters","Enter numbers in all four filter boxes.")
             return
@@ -1433,8 +1449,10 @@ class App:
                 for s in rows:
                     bp=float(s.get("sell_price_min") or 0);sa=age(s.get("sell_price_min_date"))
                     if not bp or sa>maxage:continue
+                    if self.flip_scan_buy_city!="Any" and s["city"]!=self.flip_scan_buy_city:continue
                     for d in rows:
                         if s["city"]==d["city"]:continue
+                        if self.flip_scan_sell_city!="Any" and d["city"]!=self.flip_scan_sell_city:continue
                         sp=float(d.get("sell_price_min") or 0);da=age(d.get("sell_price_min_date"))
                         if not sp or da>maxage:continue
                         sell_fees=sp*total_sell_fee
@@ -1455,7 +1473,7 @@ class App:
                     t=tier(uid);e=enchant(uid)
                     tag="STALE" if refresh=="YES" else ("ACTION" if pr>0 else "LOSS")
                     iid=self.tree.insert("","end",text="",tags=(tag,),values=(f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,f"{bp:,.0f}",f"{sp:,.0f}",f"{sell_fees:,.0f}",f"{pr:,.0f}",f"{rr:.1f}%",f"{vv:.1f}",depth if depth else "—",f"{agetxt(sa)} / {agetxt(da)}",refresh,conf))
-                    rec={"type":"Flip","uid":uid,"name":nm,"tier":f"{t}.{e}","buycity":src,"sellcity":dst,"buy":bp,"sell":sp,"fees":sell_fees,"profit":pr,"roi":rr,"volume":vv,"depth":depth,"refresh":refresh,"confidence":conf}
+                    rec={"type":"Flip","uid":uid,"name":nm,"tier":f"{t}.{e}","buycity":src,"sellcity":dst,"buy":bp,"sell":sp,"market_buy":bp,"market_sell":sp,"fees":sell_fees,"profit":pr,"roi":rr,"volume":vv,"depth":depth,"buy_age":sa,"sell_age":da,"refresh":refresh,"confidence":conf,"iid":iid}
                     self.last_flip_records.append(rec)
                     self.last_flip_rows.append([f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,bp,sp,sell_fees,pr,rr,vv,depth,agetxt(sa),agetxt(da),refresh,conf])
                     if idx<150:self.load_icon_async(self.tree,self.icon_images,iid,uid)
@@ -1464,12 +1482,88 @@ class App:
                 self.status.set(f"Done — {len(out):,} opportunities • {label} sell-order fees {fee_pct:.1f}% • red rows need a market refresh.")
                 self.tree.xview_moveto(0)
                 self.flip_export_btn.config(state="normal" if self.last_flip_rows else "disabled")
+                self.flip_recalc_btn.config(state="normal" if self.last_flip_records else "disabled")
+                self.recalculate_loaded_flips()
                 self.btn.config(state="normal")
                 self.update_watchlist_from_scans()
                 self.refresh_dashboard()
             self.root.after(0,show)
         except Exception as e:
             self.root.after(0,lambda:(messagebox.showerror("Scan error",str(e)),self.btn.config(state="normal"),self.status.set("Scan failed.")))
+
+    def flip_override_key(self,uid,city,side):
+        return f"flip|{side}|{uid}|{city}"
+
+    def recalculate_loaded_flips(self):
+        if not getattr(self,"last_flip_records",None):return
+        try:qty=max(1,int(float(self.flip_qty.get())))
+        except:qty=1;self.flip_qty.set("1")
+        fee_rate=SETUP_FEE+(PREMIUM_SALES_TAX if self.premium.get() else NONPREMIUM_SALES_TAX)
+        for d in self.last_flip_records:
+            bp=float(self.manual_price_overrides.get(self.flip_override_key(d["uid"],d["buycity"],"buy"),d.get("market_buy",d["buy"])))
+            sp=float(self.manual_price_overrides.get(self.flip_override_key(d["uid"],d["sellcity"],"sell"),d.get("market_sell",d["sell"])))
+            fees=sp*fee_rate;profit=sp-fees-bp;roi=(profit/bp*100) if bp else 0;investment=bp*qty
+            d.update(buy=bp,sell=sp,fees=fees,profit=profit,roi=roi,investment=investment,qty=qty)
+            days=(qty/d["volume"]) if d.get("volume",0)>0 else 999
+            vals=(f'{d["name"]} ({d["tier"]})',d["tier"],d["buycity"],f"{bp:,.0f}",agetxt(d.get("buy_age",9999)),d["sellcity"],f"{sp:,.0f}",agetxt(d.get("sell_age",9999)),f"{investment:,.0f}",f"{fees*qty:,.0f}",f"{profit*qty:,.0f}",f"{roi:.1f}%",f'{d.get("volume",0):.1f}',f"{days:.1f}" if days<999 else "—",d.get("depth") or "—",d.get("refresh","No"),d.get("confidence","LOW"))
+            if self.tree.exists(d["iid"]):self.tree.item(d["iid"],values=vals,tags=("STALE" if d.get("refresh")=="YES" else ("ACTION" if profit>0 else "LOSS"),))
+        self.status.set(f"Recalculated locally for quantity {qty}. No market scan used.")
+        self.flip_recalc_btn.config(state="normal")
+
+    def selected_flip_record(self):
+        sel=self.tree.selection()
+        if not sel:return None
+        iid=sel[0]
+        return next((d for d in self.last_flip_records if d.get("iid")==iid),None)
+
+    def open_flip_detail(self,event=None):
+        d=self.selected_flip_record()
+        if not d:return
+        w=tk.Toplevel(self.root);w.title(f'Flip — {d["name"]} ({d["tier"]})');w.geometry("620x390")
+        box=ttk.Frame(w,padding=16);box.pack(fill="both",expand=True)
+        ttk.Label(box,text=f'{d["name"]} ({d["tier"]})',style="Title.TLabel").grid(row=0,column=0,columnspan=3,sticky="w",pady=(0,12))
+        ttk.Label(box,text=f'Buy in {d["buycity"]}').grid(row=1,column=0,sticky="w");buyv=tk.StringVar(value=str(int(d["buy"])))
+        ttk.Entry(box,textvariable=buyv,width=18).grid(row=1,column=1,sticky="w")
+        ttk.Label(box,text=f'Age: {agetxt(d.get("buy_age",9999))}').grid(row=1,column=2,sticky="w",padx=10)
+        ttk.Label(box,text=f'Sell in {d["sellcity"]}').grid(row=2,column=0,sticky="w",pady=8);sellv=tk.StringVar(value=str(int(d["sell"])))
+        ttk.Entry(box,textvariable=sellv,width=18).grid(row=2,column=1,sticky="w")
+        ttk.Label(box,text=f'Age: {agetxt(d.get("sell_age",9999))}').grid(row=2,column=2,sticky="w",padx=10)
+        summary=tk.StringVar()
+        def preview(*a):
+            try:
+                bp=float(buyv.get());sp=float(sellv.get());fee=sp*(SETUP_FEE+(PREMIUM_SALES_TAX if self.premium.get() else NONPREMIUM_SALES_TAX));p=sp-fee-bp;r=p/bp*100 if bp else 0
+                summary.set(f"Per unit: cost {bp:,.0f}  •  fees {fee:,.0f}  •  profit {p:,.0f}  •  ROI {r:.1f}%\nVolume/day {d.get('volume',0):.1f}  •  live depth {d.get('depth') or '—'}  •  confidence {d.get('confidence','LOW')}")
+            except:summary.set("Enter valid prices.")
+        buyv.trace_add("write",preview);sellv.trace_add("write",preview);preview()
+        ttk.Label(box,textvariable=summary,font=("Segoe UI",11,"bold")).grid(row=3,column=0,columnspan=3,sticky="w",pady=14)
+        def apply():
+            try:
+                self.manual_price_overrides[self.flip_override_key(d["uid"],d["buycity"],"buy")]=float(buyv.get())
+                self.manual_price_overrides[self.flip_override_key(d["uid"],d["sellcity"],"sell")]=float(sellv.get())
+                self.save_manual_overrides();self.recalculate_loaded_flips();w.destroy()
+            except:messagebox.showerror("Prices","Enter valid numeric prices.")
+        def clear():
+            self.manual_price_overrides.pop(self.flip_override_key(d["uid"],d["buycity"],"buy"),None);self.manual_price_overrides.pop(self.flip_override_key(d["uid"],d["sellcity"],"sell"),None)
+            self.save_manual_overrides();self.recalculate_loaded_flips();w.destroy()
+        ttk.Button(box,text="APPLY MANUAL PRICES",command=apply).grid(row=4,column=0,sticky="w")
+        ttk.Button(box,text="CLEAR OVERRIDES",command=clear).grid(row=4,column=1,sticky="w",padx=8)
+        ttk.Button(box,text="REFRESH FROM AODP",command=lambda:(w.destroy(),self.refresh_selected_flip())).grid(row=4,column=2,sticky="w")
+
+    def refresh_selected_flip(self):
+        d=self.selected_flip_record()
+        if not d:return
+        self.status.set(f'Refreshing {d["name"]} only...')
+        def work():
+            try:
+                rows=prices_for([d["uid"]],[d["buycity"],d["sellcity"]])
+                for r in rows:
+                    if r.get("city")==d["buycity"] and float(r.get("sell_price_min") or 0)>0:
+                        d["market_buy"]=float(r["sell_price_min"]);d["buy_age"]=age(r.get("sell_price_min_date"))
+                    if r.get("city")==d["sellcity"] and float(r.get("sell_price_min") or 0)>0:
+                        d["market_sell"]=float(r["sell_price_min"]);d["sell_age"]=age(r.get("sell_price_min_date"))
+                self.root.after(0,lambda:(self.recalculate_loaded_flips(),self.status.set(f'Refreshed {d["name"]} in {d["buycity"]} and {d["sellcity"]}.')))
+            except Exception as e:self.root.after(0,lambda:messagebox.showerror("Refresh selected",str(e)))
+        threading.Thread(target=work,daemon=True).start()
 
     # ---------- crafting scanner ----------
     def set_craft_status(self,s):
