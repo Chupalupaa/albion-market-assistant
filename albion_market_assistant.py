@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.16"
+APP_VERSION="1.5.17"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1507,25 +1507,34 @@ class App:
                         else:hh.extend(data)
                     except:pass
                     done_jobs+=1;self.setstatus(f"Fast market sync... {done_jobs}/{max(1,total_jobs)} requests")
-            # Recovery pass for sparse high-tier/high-enchantment rows.
-            # AODP can return sparse combinations inconsistently in very broad requests;
-            # these are exactly the rare 7.3/7.4/8.3/8.4 flips we most do not want to miss.
-            # Re-query those IDs in smaller batches and merge by item/city/quality.
-            rare_ids=[uid for uid in ids if tier(uid) in (7,8) and enchant(uid) in (3,4)]
-            if rare_ids:
-                self.setstatus("Checking rare high-value flips...")
+            # Freshness pass: broad multi-city AODP requests can lag behind the
+            # per-route data shown by market websites. Re-query the selected route in
+            # small batches and merge the freshest observation per price side.
+            # For Any/Any scans this is limited to rare high-value items to avoid exploding
+            # request count; for a specific buy/sell route it refreshes every selected item.
+            specific_route=(self.flip_scan_buy_city!="Any" and self.flip_scan_sell_city!="Any")
+            refresh_ids=ids if specific_route else [uid for uid in ids if tier(uid) in (7,8) and enchant(uid) in (3,4)]
+            if refresh_ids:
+                self.setstatus("Refreshing latest route prices...")
                 recovered=[]
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(FLIP_WORKERS,6)) as rex:
-                    rfuts=[rex.submit(prices_for_qualities,b,request_locs) for b in batches(rare_ids,max_chars=900,max_items=20)]
+                route_locs=request_locs if not specific_route else [self.flip_scan_buy_city,self.flip_scan_sell_city]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(FLIP_WORKERS,10)) as rex:
+                    rfuts=[rex.submit(prices_for_qualities,b,route_locs) for b in batches(refresh_ids,max_chars=650,max_items=12)]
                     for rf in concurrent.futures.as_completed(rfuts):
                         try:recovered.extend(rf.result())
                         except:pass
+                def row_time(row):
+                    ds=[row.get("sell_price_min_date"),row.get("buy_price_max_date")]
+                    vals=[]
+                    for d in ds:
+                        try: vals.append(datetime.fromisoformat(str(d).replace("Z","+00:00")).timestamp())
+                        except: pass
+                    return max(vals) if vals else 0
                 merged={}
                 for row in pp+recovered:
                     key=(row.get("item_id"),row.get("city"),int(row.get("quality") or 1))
                     prev=merged.get(key)
-                    # Recovery response is later/fresher; prefer it when populated.
-                    if prev is None or row.get("sell_price_min") or row.get("buy_price_max"):
+                    if prev is None or row_time(row)>=row_time(prev):
                         merged[key]=row
                 pp=list(merged.values())
             if not use_cached_history:
