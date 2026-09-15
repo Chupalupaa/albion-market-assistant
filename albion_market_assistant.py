@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.1"
+APP_VERSION="1.5.2"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1505,7 +1505,7 @@ class App:
                 self.tree.xview_moveto(0)
                 self.flip_export_btn.config(state="normal" if self.last_flip_rows else "disabled")
                 self.flip_recalc_btn.config(state="normal" if self.last_flip_records else "disabled")
-                self.recalculate_loaded_flips()
+                if self.last_flip_records:self.recalculate_loaded_flips(update_status=False)
                 self.btn.config(state="normal")
                 self.update_watchlist_from_scans()
                 self.refresh_dashboard()
@@ -1516,7 +1516,7 @@ class App:
     def flip_override_key(self,uid,city,side):
         return f"flip|{side}|{uid}|{city}"
 
-    def recalculate_loaded_flips(self):
+    def recalculate_loaded_flips(self,update_status=True):
         if not getattr(self,"last_flip_records",None):return
         try:qty=max(1,int(float(self.flip_qty.get())))
         except:qty=1;self.flip_qty.set("1")
@@ -1529,7 +1529,7 @@ class App:
             days=(qty/d["volume"]) if d.get("volume",0)>0 else 999
             vals=(f'{d["name"]} ({d["tier"]})',d["tier"],d["buycity"],f"{bp:,.0f}",agetxt(d.get("buy_age",9999)),d["sellcity"],f"{sp:,.0f}",agetxt(d.get("sell_age",9999)),f"{investment:,.0f}",f"{fees*qty:,.0f}",f"{profit*qty:,.0f}",f"{roi:.1f}%",f'{d.get("volume",0):.1f}',f"{days:.1f}" if days<999 else "—",d.get("depth") or "—",d.get("refresh","No"),d.get("confidence","LOW"))
             if self.tree.exists(d["iid"]):self.tree.item(d["iid"],values=vals,tags=("STALE" if d.get("refresh")=="YES" else ("ACTION" if profit>0 else "LOSS"),))
-        self.status.set(f"Recalculated locally for quantity {qty}. No market scan used.")
+        if update_status:self.status.set(f"Recalculated locally for quantity {qty}. No market scan used.")
         self.flip_recalc_btn.config(state="normal")
 
     def selected_flip_record(self):
