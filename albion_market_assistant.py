@@ -1194,7 +1194,8 @@ class App:
         return tuple(int(x) for x in nums[:4]) or (0,)
 
     def fetch_latest_app(self):
-        req=urllib.request.Request(UPDATE_APP_URL,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}","Cache-Control":"no-cache"})
+        url=UPDATE_APP_URL+f"?v={int(time.time())}"
+        req=urllib.request.Request(url,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}","Cache-Control":"no-cache, no-store","Pragma":"no-cache"})
         with urllib.request.urlopen(req,timeout=30) as r:data=r.read()
         if len(data)<10000:raise RuntimeError("GitHub application file was unexpectedly small.")
         text=data.decode("utf-8")
