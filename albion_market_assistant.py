@@ -1,10 +1,10 @@
-import gzip, json, re, threading, time, urllib.parse, urllib.request, sqlite3, os, csv, math, asyncio, sys, shutil, tempfile
+import gzip, json, re, threading, time, urllib.parse, urllib.request, sqlite3, os, csv, math, asyncio, sys, shutil, tempfile, concurrent.futures
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.5"
+APP_VERSION="1.5.6"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -41,6 +41,11 @@ RECIPES_CACHE=os.path.join(APP_DIR,"recipes_cache.json")
 SETTINGS_FILE=os.path.join(APP_DIR,"app_settings.json")
 HISTORY_DAYS=14
 DB=os.path.join(APP_DIR,"albion_market_cache.db")
+ITEMS_CACHE=os.path.join(APP_DIR,"items_cache.json")
+FLIP_HISTORY_CACHE=os.path.join(APP_DIR,"flip_history_cache.json")
+ITEMS_CACHE_SECONDS=24*3600
+HISTORY_CACHE_SECONDS=30*60
+FLIP_WORKERS=8
 
 SELL_LOCATIONS=CRAFT_CITIES+["Black Market"]
 WATCHLIST_FILE=os.path.join(APP_DIR,"watchlist.json")
@@ -993,7 +998,7 @@ class App:
             v=tk.BooleanVar(value=False);self.enchants[e]=v
             ttk.Checkbutton(filters,text=f".{e}",variable=v).grid(row=0,column=7+n,sticky="w",padx=(2,4))
 
-        self.flip_min_conf=tk.StringVar(value="Any");self.flip_buy_city=tk.StringVar(value="Any")
+        self.flip_buy_city=tk.StringVar(value="Any")
         self.flip_sell_city=tk.StringVar(value="Any");self.flip_qty=tk.StringVar(value="1")
         self.flip_search=tk.StringVar(value="");self.flip_category=tk.StringVar(value="All")
         ttk.Label(filters,text="Buy city").grid(row=1,column=0,sticky="w",pady=(8,0))
@@ -1002,8 +1007,6 @@ class App:
         ttk.Combobox(filters,textvariable=self.flip_sell_city,values=["Any"]+FLIP_SELL_LOCATIONS,state="readonly",width=12).grid(row=1,column=4,columnspan=2,sticky="w",pady=(8,0))
         ttk.Label(filters,text="Qty").grid(row=1,column=6,sticky="e",padx=(8,3),pady=(8,0))
         ttk.Entry(filters,textvariable=self.flip_qty,width=6).grid(row=1,column=7,sticky="w",pady=(8,0))
-        ttk.Label(filters,text="Confidence").grid(row=1,column=8,sticky="e",padx=(8,3),pady=(8,0))
-        ttk.Combobox(filters,textvariable=self.flip_min_conf,values=["Any","MEDIUM+","HIGH"],state="readonly",width=10).grid(row=1,column=9,columnspan=2,sticky="w",pady=(8,0))
 
         searchrow=ttk.Frame(self.flips_tab,padding=(12,0,12,6));searchrow.pack(fill="x")
         ttk.Label(searchrow,text="Search").pack(side="left")
@@ -1022,15 +1025,15 @@ class App:
         self.status=tk.StringVar(value="Ready. Green = actionable, amber = stale, red = loss/problem, blue = just recalculated locally.")
         ttk.Label(self.flips_tab,textvariable=self.status,padding=(12,4)).pack(fill="x")
 
-        cols=("item","tier","from","buy","buyage","to","sell","sellage","investment","fees","profit","roi","volume","days","depth","refresh","confidence")
+        cols=("item","tier","from","buy","buyage","to","sell","sellage","investment","fees","profit","roi","volume","days","depth","refresh")
         self.tree=ttk.Treeview(self.flips_tab,columns=cols,show="tree headings")
         self.tree.heading("#0",text="Icon"); self.tree.column("#0",width=58,minwidth=58,stretch=False,anchor="center")
         heads={"item":"Item","tier":"Tier","from":"Buy city","buy":"Buy","buyage":"Buy age","to":"Sell city","sell":"Sell","sellage":"Sell age",
-               "investment":"Investment","fees":"Fees","profit":"Profit","roi":"ROI","volume":"14d/day","days":"Days to sell","depth":"Live depth","refresh":"Refresh?","confidence":"Confidence"}
-        widths={"item":250,"tier":55,"from":95,"buy":85,"buyage":80,"to":95,"sell":85,"sellage":80,"investment":95,"fees":85,"profit":95,"roi":65,"volume":70,"days":80,"depth":75,"refresh":70,"confidence":85}
+               "investment":"Investment","fees":"Fees","profit":"Profit","roi":"ROI","volume":"14d/day","days":"Days to sell","depth":"Live depth","refresh":"Refresh?"}
+        widths={"item":250,"tier":55,"from":95,"buy":85,"buyage":80,"to":95,"sell":85,"sellage":80,"investment":95,"fees":85,"profit":95,"roi":65,"volume":70,"days":80,"depth":75,"refresh":70}
         for c in cols:
             self.tree.heading(c,text=heads[c])
-            self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
+            self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
         tablewrap=ttk.Frame(self.flips_tab)
         tablewrap.pack(fill="both",expand=True,padx=12,pady=(0,12))
         tablewrap.rowconfigure(0,weight=1);tablewrap.columnconfigure(0,weight=1)
@@ -1431,7 +1434,7 @@ class App:
             if not any(v.get() for v in self.tiers.values()) or not any(v.get() for v in self.enchants.values()):
                 messagebox.showerror("Choose filters","Select at least one Tier and one Enchantment before scanning.")
                 return
-            self.settings=(float(self.profit.get()),float(self.roi.get()),int(self.agev.get()),float(self.vol.get()),bool(self.premium.get()),self.flip_min_conf.get())
+            self.settings=(float(self.profit.get()),float(self.roi.get()),int(self.agev.get()),float(self.vol.get()),bool(self.premium.get()))
             self.flip_scan_buy_city=self.flip_buy_city.get();self.flip_scan_sell_city=self.flip_sell_city.get()
         except:
             messagebox.showerror("Invalid filters","Enter numbers in all four filter boxes.")
@@ -1442,11 +1445,18 @@ class App:
 
     def scan(self):
         try:
-            minp,minroi,maxage,minvol,premium,minconf=self.settings
+            minp,minroi,maxage,minvol,premium=self.settings
             sales_tax=PREMIUM_SALES_TAX if premium else NONPREMIUM_SALES_TAX
             total_sell_fee=SETUP_FEE+sales_tax
-            self.setstatus("Downloading Albion item catalog...")
-            cat=get_json(ITEMS_URL)
+            self.setstatus("Loading item catalog...")
+            try:
+                if os.path.exists(ITEMS_CACHE) and time.time()-os.path.getmtime(ITEMS_CACHE)<ITEMS_CACHE_SECONDS:
+                    with open(ITEMS_CACHE,"r",encoding="utf-8") as cf:cat=json.load(cf)
+                else:
+                    cat=get_json(ITEMS_URL)
+                    with open(ITEMS_CACHE,"w",encoding="utf-8") as cf:json.dump(cat,cf,separators=(",",":"))
+            except:
+                cat=get_json(ITEMS_URL)
             if isinstance(cat,dict):cat=cat.get("items") or cat.get("Items") or list(cat.values())
             st={x for x,v in self.tiers.items() if v.get()}
             se={x for x,v in self.enchants.items() if v.get()}
@@ -1460,13 +1470,39 @@ class App:
                         if self.flip_category.get()!="All" and item_category(uid)!=self.flip_category.get():continue
                         ids.append(uid);names[uid]=nm
             pp=[];hh=[];bs=list(batches(ids))
-            for i,b in enumerate(bs,1):
-                self.setstatus(f"Downloading market data... batch {i}/{len(bs)}")
+            # Only request locations that can participate in the selected route.
+            buylocs=CITIES if self.flip_scan_buy_city=="Any" else [self.flip_scan_buy_city]
+            selllocs=FLIP_SELL_LOCATIONS if self.flip_scan_sell_city=="Any" else [self.flip_scan_sell_city]
+            request_locs=list(dict.fromkeys(buylocs+selllocs))
+            # Prices are always fresh. History is cached because 14-day volume changes slowly.
+            hist_key="|".join(sorted(ids))+"::"+"|".join(sorted(request_locs))
+            hcache={}
+            try:
+                if os.path.exists(FLIP_HISTORY_CACHE):
+                    with open(FLIP_HISTORY_CACHE,"r",encoding="utf-8") as hf:hcache=json.load(hf)
+            except:hcache={}
+            hc=hcache.get(hist_key,{})
+            use_cached_history=bool(hc and time.time()-float(hc.get("time",0))<HISTORY_CACHE_SECONDS)
+            if use_cached_history:hh=hc.get("data",[])
+            total_jobs=len(bs)+(0 if use_cached_history else len(bs));done_jobs=0
+            def price_job(b):return ("p",prices_for(b,request_locs))
+            def hist_job(b):return ("h",history_for(b,request_locs))
+            jobs=[]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=FLIP_WORKERS) as ex:
+                jobs += [ex.submit(price_job,b) for b in bs]
+                if not use_cached_history:jobs += [ex.submit(hist_job,b) for b in bs]
+                for fut in concurrent.futures.as_completed(jobs):
+                    try:
+                        typ,data=fut.result()
+                        if typ=="p":pp.extend(data)
+                        else:hh.extend(data)
+                    except:pass
+                    done_jobs+=1;self.setstatus(f"Fast market sync... {done_jobs}/{max(1,total_jobs)} requests")
+            if not use_cached_history:
                 try:
-                    pp.extend(prices_for(b,FLIP_SELL_LOCATIONS))
-                    hh.extend(history_for(b,FLIP_SELL_LOCATIONS))
+                    hcache={hist_key:{"time":time.time(),"data":hh}}
+                    with open(FLIP_HISTORY_CACHE,"w",encoding="utf-8") as hf:json.dump(hcache,hf,separators=(",",":"))
                 except:pass
-                time.sleep(.18)
             vm={}
             for h in hh:
                 vals=[]
@@ -1496,23 +1532,20 @@ class App:
                         pr=sp-sell_fees-bp
                         rr=pr/bp*100
                         vv=vm.get((uid,d["city"]),0)
-                        conf=confidence(sa,da,vv)
-                        rank={"LOW":1,"MEDIUM":2,"HIGH":3}[conf]
-                        need={"Any":1,"MEDIUM+":2,"HIGH":3}.get(minconf,1)
-                        if pr>=minp and rr>=minroi and vv>=minvol and rank>=need:
+                        if pr>=minp and rr>=minroi and vv>=minvol:
                             refresh="YES" if max(sa,da)>90 else "No"
                             depth=live_depth(uid,d["city"],1,"sell")[1]
-                            out.append((pr,rr,uid,names.get(uid,uid),s["city"],d["city"],bp,sp,sell_fees,vv,depth,sa,da,refresh,conf))
+                            out.append((pr,rr,uid,names.get(uid,uid),s["city"],d["city"],bp,sp,sell_fees,vv,depth,sa,da,refresh))
             out.sort(reverse=True)
             def show():
                 self.last_flip_rows=[];self.last_flip_records=[]
-                for idx,(pr,rr,uid,nm,src,dst,bp,sp,sell_fees,vv,depth,sa,da,refresh,conf) in enumerate(out[:500]):
+                for idx,(pr,rr,uid,nm,src,dst,bp,sp,sell_fees,vv,depth,sa,da,refresh) in enumerate(out[:500]):
                     t=tier(uid);e=enchant(uid)
                     tag="STALE" if refresh=="YES" else ("ACTION" if pr>0 else "LOSS")
-                    iid=self.tree.insert("","end",text="",tags=(tag,),values=(f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,f"{bp:,.0f}",f"{sp:,.0f}",f"{sell_fees:,.0f}",f"{pr:,.0f}",f"{rr:.1f}%",f"{vv:.1f}",depth if depth else "—",f"{agetxt(sa)} / {agetxt(da)}",refresh,conf))
-                    rec={"type":"Flip","uid":uid,"name":nm,"tier":f"{t}.{e}","buycity":src,"sellcity":dst,"buy":bp,"sell":sp,"market_buy":bp,"market_sell":sp,"fees":sell_fees,"profit":pr,"roi":rr,"volume":vv,"depth":depth,"buy_age":sa,"sell_age":da,"refresh":refresh,"confidence":conf,"iid":iid}
+                    iid=self.tree.insert("","end",text="",tags=(tag,),values=(f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,f"{bp:,.0f}",f"{sp:,.0f}",f"{sell_fees:,.0f}",f"{pr:,.0f}",f"{rr:.1f}%",f"{vv:.1f}",depth if depth else "—",f"{agetxt(sa)} / {agetxt(da)}",refresh))
+                    rec={"type":"Flip","uid":uid,"name":nm,"tier":f"{t}.{e}","buycity":src,"sellcity":dst,"buy":bp,"sell":sp,"market_buy":bp,"market_sell":sp,"fees":sell_fees,"profit":pr,"roi":rr,"volume":vv,"depth":depth,"buy_age":sa,"sell_age":da,"refresh":refresh,"iid":iid}
                     self.last_flip_records.append(rec)
-                    self.last_flip_rows.append([f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,bp,sp,sell_fees,pr,rr,vv,depth,agetxt(sa),agetxt(da),refresh,conf])
+                    self.last_flip_rows.append([f"{nm} ({t}.{e})",f"{t}.{e}",src,dst,bp,sp,sell_fees,pr,rr,vv,depth,agetxt(sa),agetxt(da),refresh])
                     if idx<150:self.load_icon_async(self.tree,self.icon_images,iid,uid)
                 fee_pct=total_sell_fee*100
                 label="Premium" if premium else "No Premium"
@@ -1542,7 +1575,7 @@ class App:
             fees=sp*fee_rate;profit=sp-fees-bp;roi=(profit/bp*100) if bp else 0;investment=bp*qty
             d.update(buy=bp,sell=sp,fees=fees,profit=profit,roi=roi,investment=investment,qty=qty)
             days=(qty/d["volume"]) if d.get("volume",0)>0 else 999
-            vals=(f'{d["name"]} ({d["tier"]})',d["tier"],d["buycity"],f"{bp:,.0f}",agetxt(d.get("buy_age",9999)),d["sellcity"],f"{sp:,.0f}",agetxt(d.get("sell_age",9999)),f"{investment:,.0f}",f"{fees*qty:,.0f}",f"{profit*qty:,.0f}",f"{roi:.1f}%",f'{d.get("volume",0):.1f}',f"{days:.1f}" if days<999 else "—",d.get("depth") or "—",d.get("refresh","No"),d.get("confidence","LOW"))
+            vals=(f'{d["name"]} ({d["tier"]})',d["tier"],d["buycity"],f"{bp:,.0f}",agetxt(d.get("buy_age",9999)),d["sellcity"],f"{sp:,.0f}",agetxt(d.get("sell_age",9999)),f"{investment:,.0f}",f"{fees*qty:,.0f}",f"{profit*qty:,.0f}",f"{roi:.1f}%",f'{d.get("volume",0):.1f}',f"{days:.1f}" if days<999 else "—",d.get("depth") or "—",d.get("refresh","No"))
             if self.tree.exists(d["iid"]):self.tree.item(d["iid"],values=vals,tags=("STALE" if d.get("refresh")=="YES" else ("ACTION" if profit>0 else "LOSS"),))
         if update_status:self.status.set(f"Recalculated locally for quantity {qty}. No market scan used.")
         self.flip_recalc_btn.config(state="normal")
@@ -1569,7 +1602,7 @@ class App:
         def preview(*a):
             try:
                 bp=float(buyv.get());sp=float(sellv.get());fee=sp*(SETUP_FEE+(PREMIUM_SALES_TAX if self.premium.get() else NONPREMIUM_SALES_TAX));p=sp-fee-bp;r=p/bp*100 if bp else 0
-                summary.set(f"Per unit: cost {bp:,.0f}  •  fees {fee:,.0f}  •  profit {p:,.0f}  •  ROI {r:.1f}%\nVolume/day {d.get('volume',0):.1f}  •  live depth {d.get('depth') or '—'}  •  confidence {d.get('confidence','LOW')}")
+                summary.set(f"Per unit: cost {bp:,.0f}  •  fees {fee:,.0f}  •  profit {p:,.0f}  •  ROI {r:.1f}%\nVolume/day {d.get('volume',0):.1f}  •  live depth {d.get('depth') or '—'}")
             except:summary.set("Enter valid prices.")
         buyv.trace_add("write",preview);sellv.trace_add("write",preview);preview()
         ttk.Label(box,textvariable=summary,font=("Segoe UI",11,"bold")).grid(row=3,column=0,columnspan=3,sticky="w",pady=14)
