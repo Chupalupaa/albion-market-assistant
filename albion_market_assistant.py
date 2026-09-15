@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.15"
+APP_VERSION="1.5.16"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1566,10 +1566,14 @@ class App:
                     if self.flip_scan_buy_city!="Any" and s["city"]!=self.flip_scan_buy_city:continue
                     for d in rows:
                         if s["city"]==d["city"]:continue
-                        # Compare the same physical item quality end-to-end.
-                        # Quality is automatic: there is intentionally no quality filter.
+                        # Quality is automatic. Normal royal-market flips must match
+                        # quality exactly. Black Market orders accept the requested
+                        # quality OR any higher-quality item, so source quality >= BM
+                        # requested quality is valid (e.g. Excellent item -> Normal BM order).
                         sq=int(s.get("quality") or 1);dq=int(d.get("quality") or 1)
-                        if sq!=dq:continue
+                        if d["city"]=="Black Market":
+                            if sq<dq:continue
+                        elif sq!=dq:continue
                         if self.flip_scan_sell_city!="Any" and d["city"]!=self.flip_scan_sell_city:continue
                         # Royal-city destination = list a sell order at sell_price_min.
                         # Black Market destination = sell INTO its highest buy order.
