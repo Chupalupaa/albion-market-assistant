@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.14"
+APP_VERSION="1.5.15"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1451,14 +1451,21 @@ class App:
             sales_tax=PREMIUM_SALES_TAX if premium else NONPREMIUM_SALES_TAX
             total_sell_fee=SETUP_FEE+sales_tax
             self.setstatus("Loading item catalog...")
-            try:
-                if os.path.exists(ITEMS_CACHE) and time.time()-os.path.getmtime(ITEMS_CACHE)<ITEMS_CACHE_SECONDS:
-                    with open(ITEMS_CACHE,"r",encoding="utf-8") as cf:cat=json.load(cf)
-                else:
-                    cat=get_json(ITEMS_URL)
-                    with open(ITEMS_CACHE,"w",encoding="utf-8") as cf:json.dump(cat,cf,separators=(",",":"))
-            except:
-                cat=get_json(ITEMS_URL)
+            # The catalog is effectively static for market scans. Never block a scan
+            # on GitHub just because the 24h cache expired; use the local catalog first and
+            # refresh it in the background. This also makes diagnostics start immediately.
+            if os.path.exists(ITEMS_CACHE):
+                with open(ITEMS_CACHE,"r",encoding="utf-8") as cf:cat=json.load(cf)
+                if time.time()-os.path.getmtime(ITEMS_CACHE)>=ITEMS_CACHE_SECONDS:
+                    def refresh_catalog():
+                        try:
+                            fresh=get_json(ITEMS_URL,20)
+                            with open(ITEMS_CACHE,"w",encoding="utf-8") as cf:json.dump(fresh,cf,separators=(",",":"))
+                        except:pass
+                    threading.Thread(target=refresh_catalog,daemon=True).start()
+            else:
+                cat=get_json(ITEMS_URL,20)
+                with open(ITEMS_CACHE,"w",encoding="utf-8") as cf:json.dump(cat,cf,separators=(",",":"))
             if isinstance(cat,dict):cat=cat.get("items") or cat.get("Items") or list(cat.values())
             st={x for x,v in self.tiers.items() if v.get()}
             se={x for x,v in self.enchants.items() if v.get()}
