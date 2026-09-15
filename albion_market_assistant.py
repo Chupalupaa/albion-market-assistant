@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.4.1"
+APP_VERSION="1.4.2"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_MANIFEST_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
@@ -1911,6 +1911,14 @@ class App:
         self.ai_model=tk.StringVar(value="gpt-5.6-luna")
         ttk.Combobox(row,textvariable=self.ai_model,values=("gpt-5.6-luna","gpt-5.6-terra","gpt-5.6-sol"),width=18,state="readonly").pack(side="left")
         ttk.Button(row,text="SAVE KEY LOCALLY",command=self.save_ai_key).pack(side="left",padx=(8,0))
+        self.ai_monthly_limit=tk.DoubleVar(value=5.0);self.ai_spend=0.0;self.ai_call_count=0;self.ai_usage_month=""
+        self.load_ai_usage()
+        budget=ttk.Frame(setup);budget.pack(fill="x",pady=(8,0))
+        ttk.Label(budget,text="Monthly AI limit $").pack(side="left")
+        ttk.Entry(budget,textvariable=self.ai_monthly_limit,width=8).pack(side="left",padx=(5,7))
+        ttk.Button(budget,text="SAVE LIMIT",command=self.save_ai_usage).pack(side="left")
+        self.ai_usage_label=tk.StringVar();ttk.Label(budget,textvariable=self.ai_usage_label).pack(side="left",padx=(14,0))
+        self.refresh_ai_usage_label()
 
         quick=ttk.Frame(outer);quick.pack(fill="x",pady=(10,6))
         ttk.Button(quick,text="BEST CRAFTS",command=lambda:self.ai_quick("Find the best crafts in my currently loaded results. Prioritize realistic profit, ROI, sales volume, data freshness, and Focus efficiency. Tell me what to craft, where to craft it, where to sell it, and why.")).pack(side="left")
@@ -1931,6 +1939,45 @@ class App:
         self.ai_answer=tk.Text(outer,wrap="word",height=24)
         self.ai_answer.pack(fill="both",expand=True)
         self.apply_text_theme(self.ai_answer)
+
+    def ai_usage_path(self):
+        return os.path.join(APP_DIR,"ai_usage.json")
+
+    def ai_month(self):
+        return datetime.now().strftime("%Y-%m")
+
+    def load_ai_usage(self):
+        month=self.ai_month()
+        try:
+            with open(self.ai_usage_path(),"r",encoding="utf-8") as f:d=json.load(f)
+            self.ai_monthly_limit.set(float(d.get("monthly_limit",5.0)))
+            if d.get("month")==month:
+                self.ai_spend=float(d.get("estimated_spend",0.0));self.ai_call_count=int(d.get("calls",0))
+            self.ai_usage_month=month
+        except Exception:self.ai_usage_month=month
+
+    def save_ai_usage(self):
+        try:
+            limit=max(0.0,float(self.ai_monthly_limit.get()));self.ai_monthly_limit.set(limit)
+            with open(self.ai_usage_path(),"w",encoding="utf-8") as f:
+                json.dump({"month":self.ai_month(),"monthly_limit":limit,"estimated_spend":self.ai_spend,"calls":self.ai_call_count},f,indent=2)
+            if hasattr(self,"ai_usage_label"):self.refresh_ai_usage_label()
+        except Exception as e:messagebox.showerror("AI budget",str(e))
+
+    def refresh_ai_usage_label(self):
+        if self.ai_usage_month!=self.ai_month():
+            self.ai_spend=0.0;self.ai_call_count=0;self.ai_usage_month=self.ai_month();self.save_ai_usage();return
+        limit=max(0.0,float(self.ai_monthly_limit.get()));remaining=max(0.0,limit-self.ai_spend)
+        state="STOPPED" if limit<=0 or self.ai_spend>=limit else "ACTIVE"
+        self.ai_usage_label.set(f"Estimated spend: ${self.ai_spend:.4f}  |  Calls: {self.ai_call_count}  |  Remaining: ${remaining:.4f}  |  AI {state}")
+
+    def ai_price_rates(self,model):
+        return {"gpt-5.6-luna":(0.20,1.20),"gpt-5.6-terra":(2.0,12.0),"gpt-5.6-sol":(4.0,20.0)}.get(model,(0.20,1.20))
+
+    def ai_usage_cost(self,model,usage):
+        inp=float((usage or {}).get("input_tokens",0) or 0);out=float((usage or {}).get("output_tokens",0) or 0)
+        ip,op=self.ai_price_rates(model)
+        return (inp*ip+out*op)/1000000.0
 
     def ai_key_path(self):
         return os.path.join(APP_DIR,"openai_api_key.txt")
@@ -1981,6 +2028,10 @@ class App:
     def ask_ai(self):
         question=self.ai_question.get("1.0","end").strip()
         if not question:return
+        self.refresh_ai_usage_label()
+        limit=max(0.0,float(self.ai_monthly_limit.get()))
+        if limit<=0 or self.ai_spend>=limit:
+            messagebox.showwarning("AI monthly limit",f"AI calls are stopped. Your local monthly limit is ${limit:.2f} and estimated tracked spend is ${self.ai_spend:.4f}. Raise the limit and click SAVE LIMIT to continue.");return
         key=self.load_ai_key()
         if not key:
             messagebox.showwarning("OpenAI API key","Paste your OpenAI API key at the top of the AI Assistant tab, then click SAVE KEY LOCALLY.");return
@@ -2001,7 +2052,7 @@ class App:
                 "input":"PLAYER QUESTION:\\n"+question+"\\n\\nCURRENT APP DATA (JSON):\\n"+json.dumps(ctx,separators=(",",":")),
                 "max_output_tokens":1800}
             req=urllib.request.Request("https://api.openai.com/v1/responses",data=json.dumps(payload).encode("utf-8"),
-                headers={"Authorization":"Bearer "+key,"Content-Type":"application/json","User-Agent":"AlbionMarketAssistant/1.4"},method="POST")
+                headers={"Authorization":"Bearer "+key,"Content-Type":"application/json","User-Agent":f"AlbionMarketAssistant/{APP_VERSION}"},method="POST")
             with urllib.request.urlopen(req,timeout=120) as r:data=json.loads(r.read().decode("utf-8"))
             answer=data.get("output_text")
             if not answer:
@@ -2011,7 +2062,8 @@ class App:
                         if c.get("type")=="output_text":parts.append(c.get("text",""))
                 answer="\\n".join(parts).strip()
             if not answer:answer="The API returned no text response."
-            self.root.after(0,lambda:self._show_ai_answer(answer))
+            usage=data.get("usage") or {};cost=self.ai_usage_cost(self.ai_model.get(),usage)
+            self.root.after(0,lambda a=answer,c=cost:self._show_ai_answer(a,c))
         except Exception as e:
             msg=str(e)
             if hasattr(e,"read"):
@@ -2019,9 +2071,10 @@ class App:
                 except:pass
             self.root.after(0,lambda m=msg:self._show_ai_error(m))
 
-    def _show_ai_answer(self,answer):
+    def _show_ai_answer(self,answer,cost=0.0):
+        self.ai_spend+=float(cost);self.ai_call_count+=1;self.save_ai_usage()
         self.ai_answer.config(state="normal");self.ai_answer.delete("1.0","end");self.ai_answer.insert("1.0",answer)
-        self.ai_answer.see("1.0");self.ai_ask_btn.config(state="normal");self.ai_status.set("Done — answer based on currently loaded app data.")
+        self.ai_answer.see("1.0");self.ai_ask_btn.config(state="normal");self.ai_status.set(f"Done — this call ~${cost:.5f}. Answer based on currently loaded app data.")
 
     def _show_ai_error(self,msg):
         self.ai_ask_btn.config(state="normal");self.ai_status.set("AI request failed.")
