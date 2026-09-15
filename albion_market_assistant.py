@@ -7,7 +7,8 @@ from pathlib import Path
 APP_VERSION="1.5.0"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
-UPDATE_MANIFEST_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json"
+UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
+UPDATE_LAUNCHER_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/START_ALBION_MARKET_ASSISTANT.bat"
 OVERRIDES_FILE_NAME="manual_price_overrides.json"
 BASE_URL="https://west.albion-online-data.com"
 ITEMS_URL="https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.json"
@@ -1190,79 +1191,82 @@ class App:
         nums=re.findall(r"\d+",str(v))
         return tuple(int(x) for x in nums[:4]) or (0,)
 
-    def fetch_update_manifest(self):
-        data=get_json(UPDATE_MANIFEST_URL,20)
-        if not isinstance(data,dict) or not data.get("version") or not data.get("app_url"):
-            raise RuntimeError("The GitHub version.json file is missing required fields.")
-        return data
+    def fetch_latest_app(self):
+        req=urllib.request.Request(UPDATE_APP_URL,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}","Cache-Control":"no-cache"})
+        with urllib.request.urlopen(req,timeout=30) as r:data=r.read()
+        if len(data)<10000:raise RuntimeError("GitHub application file was unexpectedly small.")
+        text=data.decode("utf-8")
+        m=re.search(r'^APP_VERSION\s*=\s*["\\\']([^"\\\']+)["\\\']',text,re.M)
+        if not m:raise RuntimeError("Could not find APP_VERSION in the GitHub application file.")
+        compile(text,"github_albion_market_assistant.py","exec")
+        return m.group(1),data
 
-    def check_for_update(self):
-        if hasattr(self,"update_status"):self.update_status.set("Checking GitHub for updates...")
+    def check_for_update(self,silent=False):
+        if hasattr(self,"update_status"):self.update_status.set(f"Current: {APP_VERSION} • Checking GitHub...")
         def work():
             try:
-                manifest=self.fetch_update_manifest()
-                latest=str(manifest["version"])
+                latest,new_bytes=self.fetch_latest_app()
                 newer=self.version_tuple(latest)>self.version_tuple(APP_VERSION)
                 def done():
                     if not newer:
-                        self.update_status.set(f"Installed {APP_VERSION} • You are up to date.")
-                        messagebox.showinfo("Updates",f"Albion Market Assistant {APP_VERSION} is up to date.")
+                        self.update_status.set(f"Current: {APP_VERSION} • Latest: {latest} • Up to date")
+                        if not silent:messagebox.showinfo("Updates",f"Albion Market Assistant {APP_VERSION} is up to date.")
                         return
-                    notes=manifest.get("notes","A newer version is available.")
-                    self.update_status.set(f"Update available: {latest}")
-                    if messagebox.askyesno("Update available",f"Version {latest} is available.\\n\\n{notes}\\n\\nUpdate now?"):
-                        self.install_update(manifest)
+                    self.update_status.set(f"Current: {APP_VERSION} • Latest: {latest} • UPDATE AVAILABLE")
+                    if silent:return
+                    if messagebox.askyesno("Update available",f"Version {latest} is available.\n\nUpdate now?"):
+                        self.install_update({"version":latest,"bytes":new_bytes})
                 self.root.after(0,done)
             except Exception as e:
-                self.root.after(0,lambda:(
-                    self.update_status.set("Could not check for updates."),
-                    messagebox.showerror("Update check failed",f"{e}\\n\\nThe repository must contain version.json on the main branch.")
-                ))
+                def fail():
+                    self.update_status.set(f"Current: {APP_VERSION} • Update check failed")
+                    if not silent:messagebox.showerror("Update check failed",str(e))
+                self.root.after(0,fail)
         threading.Thread(target=work,daemon=True).start()
 
-    def install_update(self,manifest):
-        if hasattr(self,"update_status"):self.update_status.set("Downloading update...")
+    def install_update(self,release):
+        if hasattr(self,"update_status"):self.update_status.set(f"Current: {APP_VERSION} • Installing {release['version']}...")
         def work():
             try:
                 current=Path(os.path.abspath(__file__))
-                app_url=manifest["app_url"]
-                req=urllib.request.Request(app_url,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}"})
-                with urllib.request.urlopen(req,timeout=45) as r:new_bytes=r.read()
-                if len(new_bytes)<10000:raise RuntimeError("Downloaded application file was unexpectedly small.")
-                # Compile before touching the working copy.
-                compile(new_bytes.decode("utf-8"),str(current),"exec")
+                new_bytes=release.get("bytes")
+                if not new_bytes:
+                    latest,new_bytes=self.fetch_latest_app()
+                    if latest!=release["version"]:raise RuntimeError("GitHub version changed during update. Check again.")
+                text=new_bytes.decode("utf-8")
+                compile(text,str(current),"exec")
+                m=re.search(r'^APP_VERSION\s*=\s*["\\\']([^"\\\']+)["\\\']',text,re.M)
+                if not m or m.group(1)!=release["version"]:raise RuntimeError("Downloaded file version did not match the expected update.")
                 backup=current.with_name(current.stem+"_previous"+current.suffix)
                 tmp=current.with_suffix(current.suffix+".update")
-                tmp.write_bytes(new_bytes)
-                shutil.copy2(current,backup)
-                os.replace(tmp,current)
-                # Launcher can also be updated when supplied.
-                launcher_url=manifest.get("launcher_url")
-                if launcher_url:
-                    try:
-                        req=urllib.request.Request(launcher_url,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}"})
-                        with urllib.request.urlopen(req,timeout=20) as r:b=r.read()
-                        (current.parent/"START_ALBION_MARKET_ASSISTANT.bat").write_bytes(b)
-                    except:pass
+                tmp.write_bytes(new_bytes);shutil.copy2(current,backup);os.replace(tmp,current)
+                try:
+                    req=urllib.request.Request(UPDATE_LAUNCHER_URL,headers={"User-Agent":f"AlbionMarketAssistant/{APP_VERSION}"})
+                    with urllib.request.urlopen(req,timeout=20) as r:(current.parent/"START_ALBION_MARKET_ASSISTANT.bat").write_bytes(r.read())
+                except:pass
                 def restart():
                     self.save_settings();self.save_manual_overrides();self.save_watchlist()
-                    messagebox.showinfo("Update installed",f"Updated to {manifest['version']}. The app will restart now.\\n\\nBackup: {backup.name}")
+                    messagebox.showinfo("Update installed",f"Updated to {release['version']}. The app will restart now.\n\nBackup: {backup.name}")
                     os.execl(sys.executable,sys.executable,str(current))
                 self.root.after(0,restart)
             except Exception as e:
-                self.root.after(0,lambda:(
-                    self.update_status.set("Update failed — current version was kept."),
-                    messagebox.showerror("Update failed",str(e))
-                ))
+                err=str(e)
+                self.root.after(0,lambda:self._update_failed(err))
         threading.Thread(target=work,daemon=True).start()
+
+    def _update_failed(self,err):
+        self.update_status.set(f"Current: {APP_VERSION} • Update failed: {err}")
+        messagebox.showerror("Update failed",f"{err}\n\nYour current version was kept unchanged.")
 
     def build_settings_tab(self):
         settings=ttk.Frame(self.settings_tab,padding=18);settings.pack(fill="both",expand=True)
         ttk.Label(settings,text="Settings",style="Title.TLabel").pack(anchor="w")
         updatebox=ttk.LabelFrame(settings,text="Updates",padding=12);updatebox.pack(fill="x",anchor="w",pady=(12,8))
-        self.update_status=tk.StringVar(value=f"Installed version: {APP_VERSION}")
+        self.update_status=tk.StringVar(value=f"Current: {APP_VERSION} • Automatic GitHub check enabled")
         ttk.Label(updatebox,textvariable=self.update_status,font=("Segoe UI",11,"bold")).pack(side="left")
         ttk.Button(updatebox,text="CHECK FOR UPDATE",command=self.check_for_update).pack(side="right")
+        ttk.Label(settings,text="Updates now read APP_VERSION directly from the GitHub program file; version.json is no longer required.").pack(anchor="w",pady=(4,0))
+        self.root.after(1800,lambda:self.check_for_update(silent=True))
         ttk.Checkbutton(settings,text="Dark mode",variable=self.dark,command=self.theme).pack(anchor="w",pady=(14,6))
         ttk.Checkbutton(settings,text="Premium active",variable=self.premium,command=self.premium_changed).pack(anchor="w",pady=(2,10))
         self.fee_info=tk.StringVar()
