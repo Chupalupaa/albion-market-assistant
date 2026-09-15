@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.2"
+APP_VERSION="1.5.3"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -1036,9 +1036,11 @@ class App:
         self.tree.configure(yscrollcommand=y.set,xscrollcommand=x.set)
         self.tree.bind("<Double-1>",self.open_flip_detail)
         self.tree.bind("<<TreeviewSelect>>",lambda e:self.flip_refresh_btn.config(state="normal" if self.tree.selection() else "disabled"))
-        self.tree.pack(in_=tablewrap,side="left",fill="both",expand=True)
-        y.pack(in_=tablewrap,side="right",fill="y")
-        x.pack(in_=tablewrap,side="bottom",fill="x")
+        # grid keeps both scrollbars visible without the horizontal bar consuming/collapsing the Treeview
+        tablewrap.rowconfigure(0,weight=1);tablewrap.columnconfigure(0,weight=1)
+        self.tree.grid(in_=tablewrap,row=0,column=0,sticky="nsew")
+        y.grid(in_=tablewrap,row=0,column=1,sticky="ns")
+        x.grid(in_=tablewrap,row=1,column=0,sticky="ew")
 
     def build_crafting_tab(self):
         top=ttk.Frame(self.crafting_tab,padding=12); top.pack(fill="x")
