@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-APP_VERSION="1.5.0"
+APP_VERSION="1.5.1"
 GITHUB_OWNER="Chupalupaa"
 GITHUB_REPO="albion-market-assistant"
 UPDATE_APP_URL=f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/albion_market_assistant.py"
@@ -980,44 +980,43 @@ class App:
             ttk.Label(top,text=lab).grid(row=2,column=i*2,sticky="w",padx=(0,4))
             ttk.Entry(top,textvariable=var,width=11).grid(row=2,column=i*2+1,sticky="w",padx=(0,14))
 
-        f=ttk.Frame(self.flips_tab,padding=(12,0,12,8)); f.pack(fill="x")
-        ttk.Label(f,text="Tiers:").pack(side="left")
+        filters=ttk.LabelFrame(self.flips_tab,text="Market filters",padding=(10,7));filters.pack(fill="x",padx=12,pady=(0,6))
         self.tiers={}
-        for t in range(4,9):
+        ttk.Label(filters,text="Tiers:").grid(row=0,column=0,sticky="w")
+        for n,t in enumerate(range(4,9)):
             v=tk.BooleanVar(value=False);self.tiers[t]=v
-            ttk.Checkbutton(f,text=f"T{t}",variable=v).pack(side="left")
-        ttk.Label(f,text="   Enchant:").pack(side="left")
+            ttk.Checkbutton(filters,text=f"T{t}",variable=v).grid(row=0,column=n+1,sticky="w",padx=(2,4))
         self.enchants={}
-        for e in range(5):
+        ttk.Label(filters,text="Enchant:").grid(row=0,column=6,sticky="w",padx=(14,2))
+        for n,e in enumerate(range(5)):
             v=tk.BooleanVar(value=False);self.enchants[e]=v
-            ttk.Checkbutton(f,text=f".{e}",variable=v).pack(side="left")
-        self.flip_min_conf=tk.StringVar(value="Any")
-        self.flip_buy_city=tk.StringVar(value="Any")
-        self.flip_sell_city=tk.StringVar(value="Any")
-        self.flip_qty=tk.StringVar(value="1")
-        ttk.Label(f,text="   Buy city:").pack(side="left")
-        ttk.Combobox(f,textvariable=self.flip_buy_city,values=["Any"]+CITIES,state="readonly",width=11).pack(side="left")
-        ttk.Label(f,text=" Sell city:").pack(side="left")
-        ttk.Combobox(f,textvariable=self.flip_sell_city,values=["Any"]+CITIES,state="readonly",width=11).pack(side="left")
-        ttk.Label(f,text=" Qty:").pack(side="left")
-        ttk.Entry(f,textvariable=self.flip_qty,width=5).pack(side="left")
-        ttk.Label(f,text="   Min confidence:").pack(side="left")
-        ttk.Combobox(f,textvariable=self.flip_min_conf,values=["Any","MEDIUM+","HIGH"],state="readonly",width=10).pack(side="left")
-        self.flip_search=tk.StringVar(value="")
-        self.flip_category=tk.StringVar(value="All")
-        ttk.Label(f,text="   Search:").pack(side="left")
-        ttk.Entry(f,textvariable=self.flip_search,width=18).pack(side="left")
-        ttk.Combobox(f,textvariable=self.flip_category,values=["All","Weapons","Armor","Off-hands","Bags","Capes"],state="readonly",width=10).pack(side="left",padx=(5,0))
-        self.flip_watch_btn=ttk.Button(f,text="WATCH SELECTED",command=lambda:self.add_selected_to_watchlist("flip"))
-        self.flip_watch_btn.pack(side="right",padx=(6,0))
-        self.flip_export_btn=ttk.Button(f,text="EXPORT CSV",command=self.export_flips_csv,state="disabled")
-        self.flip_export_btn.pack(side="right",padx=(6,0))
-        self.btn=ttk.Button(f,text="SCAN MARKET",command=self.start)
-        self.btn.pack(side="right")
-        self.flip_refresh_btn=ttk.Button(f,text="REFRESH SELECTED",command=self.refresh_selected_flip,state="disabled")
-        self.flip_refresh_btn.pack(side="right",padx=(0,6))
-        self.flip_recalc_btn=ttk.Button(f,text="RECALCULATE",command=self.recalculate_loaded_flips,state="disabled")
-        self.flip_recalc_btn.pack(side="right",padx=(0,6))
+            ttk.Checkbutton(filters,text=f".{e}",variable=v).grid(row=0,column=7+n,sticky="w",padx=(2,4))
+
+        self.flip_min_conf=tk.StringVar(value="Any");self.flip_buy_city=tk.StringVar(value="Any")
+        self.flip_sell_city=tk.StringVar(value="Any");self.flip_qty=tk.StringVar(value="1")
+        self.flip_search=tk.StringVar(value="");self.flip_category=tk.StringVar(value="All")
+        ttk.Label(filters,text="Buy city").grid(row=1,column=0,sticky="w",pady=(8,0))
+        ttk.Combobox(filters,textvariable=self.flip_buy_city,values=["Any"]+CITIES,state="readonly",width=12).grid(row=1,column=1,columnspan=2,sticky="w",pady=(8,0))
+        ttk.Label(filters,text="Sell city").grid(row=1,column=3,sticky="e",padx=(8,3),pady=(8,0))
+        ttk.Combobox(filters,textvariable=self.flip_sell_city,values=["Any"]+CITIES,state="readonly",width=12).grid(row=1,column=4,columnspan=2,sticky="w",pady=(8,0))
+        ttk.Label(filters,text="Qty").grid(row=1,column=6,sticky="e",padx=(8,3),pady=(8,0))
+        ttk.Entry(filters,textvariable=self.flip_qty,width=6).grid(row=1,column=7,sticky="w",pady=(8,0))
+        ttk.Label(filters,text="Confidence").grid(row=1,column=8,sticky="e",padx=(8,3),pady=(8,0))
+        ttk.Combobox(filters,textvariable=self.flip_min_conf,values=["Any","MEDIUM+","HIGH"],state="readonly",width=10).grid(row=1,column=9,columnspan=2,sticky="w",pady=(8,0))
+
+        searchrow=ttk.Frame(self.flips_tab,padding=(12,0,12,6));searchrow.pack(fill="x")
+        ttk.Label(searchrow,text="Search").pack(side="left")
+        ttk.Entry(searchrow,textvariable=self.flip_search,width=24).pack(side="left",padx=(5,8))
+        ttk.Label(searchrow,text="Category").pack(side="left")
+        ttk.Combobox(searchrow,textvariable=self.flip_category,values=["All","Weapons","Armor","Off-hands","Bags","Capes"],state="readonly",width=11).pack(side="left",padx=(5,0))
+
+        actions=ttk.Frame(self.flips_tab,padding=(12,0,12,7));actions.pack(fill="x")
+        self.btn=ttk.Button(actions,text="SCAN MARKET",command=self.start);self.btn.pack(side="left")
+        self.flip_refresh_btn=ttk.Button(actions,text="REFRESH SELECTED",command=self.refresh_selected_flip,state="disabled");self.flip_refresh_btn.pack(side="left",padx=(6,0))
+        self.flip_recalc_btn=ttk.Button(actions,text="RECALCULATE",command=self.recalculate_loaded_flips,state="disabled");self.flip_recalc_btn.pack(side="left",padx=(6,0))
+        self.flip_watch_btn=ttk.Button(actions,text="WATCH SELECTED",command=lambda:self.add_selected_to_watchlist("flip"));self.flip_watch_btn.pack(side="left",padx=(6,0))
+        self.flip_export_btn=ttk.Button(actions,text="EXPORT CSV",command=self.export_flips_csv,state="disabled");self.flip_export_btn.pack(side="left",padx=(6,0))
+        ttk.Label(actions,text="Double-click a result to verify or override exact in-game prices.").pack(side="right")
 
         self.status=tk.StringVar(value="Ready. Green = actionable, amber = stale, red = loss/problem, blue = just recalculated locally.")
         ttk.Label(self.flips_tab,textvariable=self.status,padding=(12,4)).pack(fill="x")
@@ -1031,12 +1030,15 @@ class App:
         for c in cols:
             self.tree.heading(c,text=heads[c])
             self.tree.column(c,width=widths[c],anchor="center" if c in ("tier","refresh","confidence","buyage","sellage") else ("e" if c in ("buy","sell","investment","fees","profit","roi","volume","days","depth") else "w"))
-        y=ttk.Scrollbar(self.flips_tab,orient="vertical",command=self.tree.yview)
-        self.tree.configure(yscrollcommand=y.set)
+        tablewrap=ttk.Frame(self.flips_tab);tablewrap.pack(fill="both",expand=True,padx=12,pady=(0,12))
+        y=ttk.Scrollbar(tablewrap,orient="vertical",command=self.tree.yview)
+        x=ttk.Scrollbar(tablewrap,orient="horizontal",command=self.tree.xview)
+        self.tree.configure(yscrollcommand=y.set,xscrollcommand=x.set)
         self.tree.bind("<Double-1>",self.open_flip_detail)
         self.tree.bind("<<TreeviewSelect>>",lambda e:self.flip_refresh_btn.config(state="normal" if self.tree.selection() else "disabled"))
-        self.tree.pack(side="left",fill="both",expand=True,padx=(12,0),pady=(0,12))
-        y.pack(side="right",fill="y",padx=(0,12),pady=(0,12))
+        self.tree.pack(in_=tablewrap,side="left",fill="both",expand=True)
+        y.pack(in_=tablewrap,side="right",fill="y")
+        x.pack(in_=tablewrap,side="bottom",fill="x")
 
     def build_crafting_tab(self):
         top=ttk.Frame(self.crafting_tab,padding=12); top.pack(fill="x")
